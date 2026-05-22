@@ -4,25 +4,33 @@ use dji_log_parser::record::Record;
 use dji_log_parser::DJILog;
 use exporters::{CSVExporter, GeoJsonExporter, ImageExporter, JsonExporter, KmlExporter};
 use std::fs;
+use std::path::Path;
+use std::process;
 
 mod api_key;
 mod exporters;
 mod keychains;
+mod output;
 mod utils;
 
 use api_key::resolve_api_key;
 use keychains::fetch_keychains;
+use output::{build_output_plan, OutputPlan};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub(crate) struct Cli {
-    /// Input log file
-    #[arg(value_name = "FILE")]
-    filepath: String,
+    /// Input log file(s)
+    #[arg(value_name = "FILE", required = true, num_args = 1..)]
+    filepaths: Vec<String>,
 
-    /// Write JSON output to FILE instead of stdout
-    #[arg(short, long)]
-    output: Option<String>,
+    /// Write JSON output to FILE(s) instead of using input-derived names
+    #[arg(short, long, value_name = "FILE", num_args = 1..)]
+    output: Vec<String>,
+
+    /// Overwrite existing JSON output files
+    #[arg(long)]
+    overwrite: bool,
 
     /// Extract images (use %d for sequence, e.g., image%d.jpeg)
     #[arg(short, long)]
@@ -61,14 +69,44 @@ pub(crate) struct Cli {
     api_custom_version: Option<u16>,
 }
 
+pub(crate) struct ExportOptions {
+    output: Option<String>,
+    images: Option<String>,
+    thumbnails: Option<String>,
+    geojson: Option<String>,
+    kml: Option<String>,
+    csv: Option<String>,
+    raw: bool,
+}
+
 pub(crate) trait Exporter {
-    fn export(&self, parser: &DJILog, records: &Vec<Record>, frames: &Vec<Frame>, args: &Cli);
+    fn export(
+        &self,
+        parser: &DJILog,
+        records: &Vec<Record>,
+        frames: &Vec<Frame>,
+        options: &ExportOptions,
+    );
 }
 
 fn main() {
     let args = Cli::parse();
+    let output_plan = build_output_plan(&args.filepaths, &args.output, args.overwrite)
+        .unwrap_or_else(|error| exit_with_error(&error));
 
-    let bytes = fs::read(&args.filepath).expect("Unable to read file");
+    print_existing_outputs(&output_plan, args.overwrite);
+
+    for entry in output_plan.entries.iter().filter(|entry| !entry.skip) {
+        parse_file(&args, &entry.input_path, &entry.output_path);
+    }
+
+    if args.overwrite {
+        print_overwritten_outputs(&output_plan);
+    }
+}
+
+fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) {
+    let bytes = fs::read(input_path).expect("Unable to read file");
     let parser = DJILog::from_bytes(bytes).expect("Unable to parse file");
 
     let keychains = if parser.version >= 13 {
@@ -93,6 +131,16 @@ fn main() {
         .expect("Unable to parse records");
 
     let frames = parser.frames(keychains).expect("Unable to parse frames");
+    let output_path = output_path.to_string_lossy().to_string();
+    let export_options = ExportOptions {
+        output: Some(output_path),
+        images: args.images.clone(),
+        thumbnails: args.thumbnails.clone(),
+        geojson: args.geojson.clone(),
+        kml: args.kml.clone(),
+        csv: args.csv.clone(),
+        raw: args.raw,
+    };
 
     let exporters: Vec<Box<dyn Exporter>> = vec![
         Box::new(JsonExporter),
@@ -103,6 +151,37 @@ fn main() {
     ];
 
     for exporter in exporters {
-        exporter.export(&parser, &records, &frames, &args);
+        exporter.export(&parser, &records, &frames, &export_options);
     }
+}
+
+fn print_existing_outputs(output_plan: &OutputPlan, overwrite: bool) {
+    if output_plan.existing_outputs.is_empty() {
+        return;
+    }
+
+    if overwrite {
+        return;
+    }
+
+    eprintln!("Output file(s) already exist; skipping them. Use --overwrite to replace:");
+    for output_path in &output_plan.existing_outputs {
+        eprintln!("  {}", output_path.display());
+    }
+}
+
+fn print_overwritten_outputs(output_plan: &OutputPlan) {
+    if output_plan.existing_outputs.is_empty() {
+        return;
+    }
+
+    eprintln!("Overwrote existing output file(s):");
+    for output_path in &output_plan.existing_outputs {
+        eprintln!("  {}", output_path.display());
+    }
+}
+
+fn exit_with_error(message: &str) -> ! {
+    eprintln!("{message}");
+    process::exit(2);
 }

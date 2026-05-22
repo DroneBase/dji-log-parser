@@ -7,7 +7,7 @@ use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
 
-use crate::{Cli, Exporter};
+use crate::{ExportOptions, Exporter};
 
 #[derive(Serialize, Debug)]
 struct RecordJsonData<'a> {
@@ -26,8 +26,14 @@ struct FrameJsonData<'a> {
 pub struct JsonExporter;
 
 impl Exporter for JsonExporter {
-    fn export(&self, parser: &DJILog, records: &Vec<Record>, frames: &Vec<Frame>, args: &Cli) {
-        let json_data = if args.raw {
+    fn export(
+        &self,
+        parser: &DJILog,
+        records: &Vec<Record>,
+        frames: &Vec<Frame>,
+        options: &ExportOptions,
+    ) {
+        let json_data = if options.raw {
             serde_json::to_string(&RecordJsonData {
                 version: parser.version,
                 details: parser.details.clone(),
@@ -54,7 +60,7 @@ impl Exporter for JsonExporter {
             .unwrap()
         };
 
-        if let Some(output_path) = &args.output {
+        if let Some(output_path) = &options.output {
             let mut file = File::create(output_path).expect("Unable to create output file");
             file.write_all(json_data.as_bytes())
                 .expect("Unable to write data");

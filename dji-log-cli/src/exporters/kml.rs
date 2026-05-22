@@ -7,13 +7,19 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
-use crate::{Cli, Exporter};
+use crate::{ExportOptions, Exporter};
 
 pub struct KmlExporter;
 
 impl Exporter for KmlExporter {
-    fn export(&self, parser: &DJILog, _records: &Vec<Record>, frames: &Vec<Frame>, args: &Cli) {
-        if let Some(kml_path) = &args.kml {
+    fn export(
+        &self,
+        parser: &DJILog,
+        _records: &Vec<Record>,
+        frames: &Vec<Frame>,
+        options: &ExportOptions,
+    ) {
+        if let Some(kml_path) = &options.kml {
             let mut coords = vec![];
 
             frames.iter().for_each(|frame| {

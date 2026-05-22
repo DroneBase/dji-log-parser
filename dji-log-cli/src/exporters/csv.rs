@@ -5,7 +5,7 @@ use dji_log_parser::record::Record;
 use dji_log_parser::DJILog;
 use serde::Serialize;
 
-use crate::{Cli, Exporter};
+use crate::{ExportOptions, Exporter};
 
 #[derive(Serialize)]
 struct FrameWithDetails<'a> {
@@ -17,8 +17,14 @@ struct FrameWithDetails<'a> {
 pub struct CSVExporter;
 
 impl Exporter for CSVExporter {
-    fn export(&self, parser: &DJILog, _records: &Vec<Record>, frames: &Vec<Frame>, args: &Cli) {
-        if let Some(csv_path) = &args.csv {
+    fn export(
+        &self,
+        parser: &DJILog,
+        _records: &Vec<Record>,
+        frames: &Vec<Frame>,
+        options: &ExportOptions,
+    ) {
+        if let Some(csv_path) = &options.csv {
             let mut writer = WriterBuilder::new()
                 .has_headers(false)
                 .from_path(csv_path)

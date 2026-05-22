@@ -12,7 +12,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::utils::decimal_to_dms;
-use crate::{Cli, Exporter};
+use crate::{ExportOptions, Exporter};
 
 struct ExifInfo {
     datetime: DateTime<Utc>,
@@ -24,7 +24,13 @@ struct ExifInfo {
 pub struct ImageExporter;
 
 impl Exporter for ImageExporter {
-    fn export(&self, parser: &DJILog, records: &Vec<Record>, frames: &Vec<Frame>, args: &Cli) {
+    fn export(
+        &self,
+        parser: &DJILog,
+        records: &Vec<Record>,
+        frames: &Vec<Frame>,
+        options: &ExportOptions,
+    ) {
         // Get fallback GPS point from track in case of no GPS available on startup
         let mut fallback_latitude = 0.0;
         let mut fallback_longitude = 0.0;
@@ -44,7 +50,7 @@ impl Exporter for ImageExporter {
         }
 
         // Export Images
-        if let Some(image_path) = &args.images {
+        if let Some(image_path) = &options.images {
             let mut index = 0;
             records.iter().for_each(|record| {
                 if let Record::JPEG(data) = record {
@@ -81,7 +87,7 @@ impl Exporter for ImageExporter {
         }
 
         // Export Thumbnails
-        if let Some(thumbnails_path) = &args.thumbnails {
+        if let Some(thumbnails_path) = &options.thumbnails {
             let mut index = 0;
             records.iter().for_each(|record| {
                 if let Record::JPEG(data) = record {
