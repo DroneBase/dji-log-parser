@@ -36,14 +36,76 @@ To acquire an apiKey, follow these steps:
 
 ### Basic usage
 
+Parse one log file:
+
 ```bash
-dji-log --api-key __DJI_API_KEY__ DJIFlightRecord.txt > frames.json
+dji-log DJIFlightRecord.txt
 ```
 
-or with an output arg
+This writes `DJIFlightRecord.json` next to the input file.
+
+Parse several log files in one command:
 
 ```bash
-dji-log --api-key __DJI_API_KEY__ --output frames.json DJIFlightRecord.txt
+dji-log examples/file1.txt examples/file2.txt examples/file3.txt
+```
+
+This writes:
+
+```text
+examples/file1.json
+examples/file2.json
+examples/file3.json
+```
+
+You can also use your shell's wildcard expansion to decode many files:
+
+```bash
+dji-log examples/*.txt
+```
+
+If the directory already contains generated JSON files, this is also safe:
+
+```bash
+dji-log examples/*
+```
+
+In automatic output mode, `.json` inputs are ignored so generated outputs are not re-parsed.
+
+By default, existing output files are not overwritten. Existing outputs are listed and skipped:
+
+```text
+Output file(s) already exist; skipping them. Use --overwrite to replace:
+  examples/file1.json
+Decoded 2 file(s)
+```
+
+To replace existing outputs:
+
+```bash
+dji-log --overwrite examples/*.txt
+```
+
+To manually choose output paths, pass the same number of files to `--output` as input files:
+
+```bash
+dji-log examples/file1.txt examples/file2.txt --output out1.json out2.json
+```
+
+If a file cannot be decoded, it is skipped and reported immediately and again in a final summary. Other files continue processing.
+
+### API key
+
+Encrypted logs, version 13 and later, require a DJI API key. The CLI resolves it in this order:
+
+1. `--api-key`
+2. `DJI_API_KEY` environment variable
+3. `DJI_API_KEY` in a `.env` file found from the current directory or executable path
+
+Example `.env`:
+
+```env
+DJI_API_KEY=your_api_key_here
 ```
 
 ### Additional Options
@@ -51,9 +113,11 @@ dji-log --api-key __DJI_API_KEY__ --output frames.json DJIFlightRecord.txt
 - `--raw`: Export raw records instead of normalized frames
 - `--images image%d.jpeg`: Extract embedded images
 - `--thumbnails thumbnail%d.jpeg`: Extract thumbnails
-- `--csv`: Generate a CSV file of frames
+- `--csv frames.csv`: Generate a CSV file of frames
 - `--kml track.kml`: Generate a KML file of the flight track
 - `--geojson track.json`: Generate a GeoJSON file of the flight track
+- `--output out.json`: Write JSON output to one or more explicit output paths
+- `--overwrite`: Replace existing JSON output files
 
 Use `%d` in the images or thumbnails option to specify a sequence.
 
@@ -61,6 +125,8 @@ Use `%d` in the images or thumbnails option to specify a sequence.
 
 - `--api-custom-department`: Manually set the department on keychains apis request
 - `--api-custom-version`: Manually set the department on keychains apis request
+
+If the inferred keychain department fails with DJI's API, the CLI automatically retries common DJI app departments. Use `--api-custom-department` when you need to force a specific department manually.
 
 For a complete list of options, run:
 
