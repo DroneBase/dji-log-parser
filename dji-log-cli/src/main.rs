@@ -1,8 +1,9 @@
 use clap::Parser;
 use dji_log_parser::frame::Frame;
+use dji_log_parser::keychain::KeychainFeaturePoint;
 use dji_log_parser::layout::auxiliary::Department;
 use dji_log_parser::record::Record;
-use dji_log_parser::DJILog;
+use dji_log_parser::{DJILog, Error, Result};
 use exporters::{CSVExporter, GeoJsonExporter, ImageExporter, JsonExporter, KmlExporter};
 use std::fs;
 
@@ -61,6 +62,66 @@ pub(crate) trait Exporter {
     fn export(&self, parser: &DJILog, records: &Vec<Record>, frames: &Vec<Frame>, args: &Cli);
 }
 
+fn fetch_keychains(
+    parser: &DJILog,
+    api_key: &str,
+    department: Option<u8>,
+    version: Option<u16>,
+) -> Result<Vec<Vec<KeychainFeaturePoint>>> {
+    let req =
+        parser.keychains_request_with_custom_params(department.map(Department::from), version)?;
+    let inferred_department = req.department;
+
+    match req.fetch(api_key, None) {
+        Ok(keychains) => Ok(keychains),
+        Err(error) if department.is_none() && is_invalid_ciphertext_error(&error) => {
+            fetch_keychains_with_department_fallbacks(
+                parser,
+                api_key,
+                version,
+                inferred_department,
+                error,
+            )
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn fetch_keychains_with_department_fallbacks(
+    parser: &DJILog,
+    api_key: &str,
+    version: Option<u16>,
+    failed_department: u8,
+    original_error: Error,
+) -> Result<Vec<Vec<KeychainFeaturePoint>>> {
+    for department in [Department::DJIFly, Department::DJIGO, Department::DJIPilot] {
+        let department_id = u8::from(department.clone());
+
+        if department_id == failed_department {
+            continue;
+        }
+
+        let req = parser.keychains_request_with_custom_params(Some(department), version)?;
+        match req.fetch(api_key, None) {
+            Ok(keychains) => {
+                eprintln!(
+                    "Fetched keychains after retrying with department {}",
+                    department_id
+                );
+                return Ok(keychains);
+            }
+            Err(error) if is_invalid_ciphertext_error(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(original_error)
+}
+
+fn is_invalid_ciphertext_error(error: &Error) -> bool {
+    matches!(error, Error::ApiError(message) if message == "invalid ciphertext")
+}
+
 fn main() {
     let args = Cli::parse();
 
@@ -70,14 +131,13 @@ fn main() {
     let keychains = if parser.version >= 13 {
         match &args.api_key {
             Some(api_key) => {
-                let department = args.api_custom_department.map(Department::from);
-                let version = args.api_custom_version;
-
-                let req = parser
-                    .keychains_request_with_custom_params(department, version)
-                    .expect("Unable to create keychain request");
-
-                let keychains = req.fetch(api_key, None).expect("Unable to fetch keychain");
+                let keychains = fetch_keychains(
+                    &parser,
+                    api_key,
+                    args.api_custom_department,
+                    args.api_custom_version,
+                )
+                .expect("Unable to fetch keychain");
 
                 Some(keychains)
             }
