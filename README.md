@@ -32,7 +32,7 @@ To acquire an apiKey, follow these steps:
 
 ### Installation
 
-[Download](https://github.com/lvauvillier/dji-log-parser/releases) binary from latest release
+[Download](https://github.com/DroneBase/dji-log-parser/releases/tag/v1.0.0) binary from latest release
 
 ### Basic usage
 
