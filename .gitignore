@@ -2,3 +2,5 @@
 /data
 .DS_Store
 pkg
+*.swp
+.env
