@@ -96,13 +96,22 @@ fn main() {
 
     print_existing_outputs(&output_plan, args.overwrite);
 
+    let mut decoded_count = 0;
     for entry in output_plan.entries.iter().filter(|entry| !entry.skip) {
+        eprintln!(
+            "Decoding file {} as {}",
+            entry.input_path.display(),
+            entry.output_path.display()
+        );
         parse_file(&args, &entry.input_path, &entry.output_path);
+        decoded_count += 1;
     }
 
     if args.overwrite {
         print_overwritten_outputs(&output_plan);
     }
+
+    eprintln!("Decoded {} file(s)", decoded_count);
 }
 
 fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) {
