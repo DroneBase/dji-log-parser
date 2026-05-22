@@ -4,7 +4,7 @@ use dji_log_parser::record::Record;
 use dji_log_parser::DJILog;
 use exporters::{CSVExporter, GeoJsonExporter, ImageExporter, JsonExporter, KmlExporter};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 
 mod api_key;
@@ -89,6 +89,11 @@ pub(crate) trait Exporter {
     );
 }
 
+struct ParseFailure {
+    input_path: PathBuf,
+    error: String,
+}
+
 fn main() {
     let args = Cli::parse();
     let output_plan = build_output_plan(&args.filepaths, &args.output, args.overwrite)
@@ -97,30 +102,42 @@ fn main() {
     print_existing_outputs(&output_plan, args.overwrite);
 
     let mut decoded_count = 0;
+    let mut failures = Vec::new();
     for entry in output_plan.entries.iter().filter(|entry| !entry.skip) {
         eprintln!(
             "Decoding file {} as {}",
             entry.input_path.display(),
             entry.output_path.display()
         );
-        parse_file(&args, &entry.input_path, &entry.output_path);
-        decoded_count += 1;
+
+        match parse_file(&args, &entry.input_path, &entry.output_path) {
+            Ok(()) => decoded_count += 1,
+            Err(error) => {
+                eprintln!("Skipping file {}: {}", entry.input_path.display(), error);
+                failures.push(ParseFailure {
+                    input_path: entry.input_path.clone(),
+                    error,
+                });
+            }
+        }
     }
 
     if args.overwrite {
         print_overwritten_outputs(&output_plan);
     }
 
+    print_parse_failures(&failures);
     eprintln!("Decoded {} file(s)", decoded_count);
 }
 
-fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) {
-    let bytes = fs::read(input_path).expect("Unable to read file");
-    let parser = DJILog::from_bytes(bytes).expect("Unable to parse file");
+fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) -> Result<(), String> {
+    let bytes = fs::read(input_path).map_err(|error| format!("unable to read file: {error}"))?;
+    let parser =
+        DJILog::from_bytes(bytes).map_err(|_| "file is not a parsable DJI log".to_owned())?;
 
     let keychains = if parser.version >= 13 {
         let api_key = resolve_api_key(args.api_key.as_deref())
-            .expect("API Key is required for version 13 and above");
+            .ok_or_else(|| "API key is required for version 13 and above".to_owned())?;
 
         let keychains = fetch_keychains(
             &parser,
@@ -128,7 +145,7 @@ fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) {
             args.api_custom_department,
             args.api_custom_version,
         )
-        .expect("Unable to fetch keychain");
+        .map_err(|error| format!("unable to fetch keychain: {error}"))?;
 
         Some(keychains)
     } else {
@@ -137,9 +154,11 @@ fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) {
 
     let records = parser
         .records(keychains.clone())
-        .expect("Unable to parse records");
+        .map_err(|_| "unable to parse records".to_owned())?;
 
-    let frames = parser.frames(keychains).expect("Unable to parse frames");
+    let frames = parser
+        .frames(keychains)
+        .map_err(|_| "unable to parse frames".to_owned())?;
     let output_path = output_path.to_string_lossy().to_string();
     let export_options = ExportOptions {
         output: Some(output_path),
@@ -162,6 +181,8 @@ fn parse_file(args: &Cli, input_path: &Path, output_path: &Path) {
     for exporter in exporters {
         exporter.export(&parser, &records, &frames, &export_options);
     }
+
+    Ok(())
 }
 
 fn print_existing_outputs(output_plan: &OutputPlan, overwrite: bool) {
@@ -187,6 +208,17 @@ fn print_overwritten_outputs(output_plan: &OutputPlan) {
     eprintln!("Overwrote existing output file(s):");
     for output_path in &output_plan.existing_outputs {
         eprintln!("  {}", output_path.display());
+    }
+}
+
+fn print_parse_failures(failures: &[ParseFailure]) {
+    if failures.is_empty() {
+        return;
+    }
+
+    eprintln!("File(s) skipped because they could not be decoded:");
+    for failure in failures {
+        eprintln!("  {}: {}", failure.input_path.display(), failure.error);
     }
 }
 
